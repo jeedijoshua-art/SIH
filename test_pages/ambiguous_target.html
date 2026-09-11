@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Ambiguous Target Test</title>
+</head>
+<body>
+    <h1>Ambiguous Target Test</h1>
+    <p>This page contains 3 identical delete buttons.</p>
+    
+    <div>
+        <button id="btn1" onclick="document.body.insertAdjacentHTML('beforeend', '<p>Deleted 1</p>')">Delete</button>
+    </div>
+    <br>
+    <div>
+        <button id="btn2" onclick="document.body.insertAdjacentHTML('beforeend', '<p>Deleted 2</p>')">Delete</button>
+    </div>
+    <br>
+    <div>
+        <button id="btn3" onclick="document.body.insertAdjacentHTML('beforeend', '<p>Deleted 3</p>')">Delete</button>
+    </div>
+</body>
+</html>

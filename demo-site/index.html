@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Acme ERP - Enterprise Management</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+        <header class="navbar">
+        <div class="logo">Acme ERP</div>
+        <div class="global-search">
+            <input type="text" id="global-search-input" placeholder="Search customers, invoices, products...">
+            <button onclick="performGlobalSearch()">Search</button>
+        </div>
+        <div class="user-profile">
+            <img src="https://ui-avatars.com/api/?name=John+Doe&background=random" alt="User Avatar" class="avatar">
+            <span class="user-name" id="display-user-name">John Doe</span>
+        </div>
+    </header>
+
+    <main class="dashboard-container">
+        <aside class="sidebar">
+            <nav>
+                <ul id="sidebar-nav">
+                    <li><a href="#" class="nav-link active" data-target="view-dashboard">Dashboard</a></li>
+                    <li><a href="#" class="nav-link" data-target="view-customers">Customers</a></li>
+                    <li><a href="#" class="nav-link" data-target="view-invoices">Invoices</a></li>
+                    <li><a href="#" class="nav-link" data-target="view-products">Products</a></li>
+                    <li><a href="#" class="nav-link" data-target="view-profile">Profile</a></li>
+                    <li><a href="#" class="nav-link" data-target="view-settings">Settings</a></li>
+                    <li><a href="#" class="nav-link" data-target="view-support">Support</a></li>
+                </ul>
+            </nav>
+        </aside>
+
+        <section class="content" id="main-content">
+            <div id="view-dashboard" class="view active-view">
+                <h1>Dashboard Overview</h1>
+                <div class="stats-grid">
+                    <div class="card stat-card">
+                        <h3>Total Revenue</h3>
+                        <p class="stat-value">₹24,50,000</p>
+                    </div>
+                    <div class="card stat-card">
+                        <h3>Pending Invoices</h3>
+                        <p class="stat-value error-text">12</p>
+                    </div>
+                    <div class="card stat-card">
+                        <h3>Active Customers</h3>
+                        <p class="stat-value">148</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Customers View -->
+            <div id="view-customers" class="view" style="display: none;">
+                <h1>Customer Directory</h1>
+                <div class="card">
+                    <div class="toolbar">
+                        <input type="text" id="customer-search" placeholder="Search customers...">
+                        <button onclick="filterCustomers()">Filter</button>
+                    </div>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Name</th>
+                                <th>Company</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="customer-list">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                    <div class="pagination">
+                        <button onclick="prevPage('customers')">Previous</button>
+                        <span id="customers-page">Page 1 of 3</span>
+                        <button onclick="nextPage('customers')">Next</button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Invoices View -->
+            <div id="view-invoices" class="view" style="display: none;">
+                <h1>Invoices</h1>
+                <div class="card">
+                    <div class="toolbar">
+                        <input type="text" id="invoice-search" placeholder="Search by ID or Customer...">
+                        <select id="invoice-status-filter">
+                            <option value="all">All Statuses</option>
+                            <option value="Paid">Paid</option>
+                            <option value="Pending">Pending</option>
+                            <option value="Overdue">Overdue</option>
+                        </select>
+                        <button onclick="filterInvoices()">Apply Filters</button>
+                    </div>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Invoice #</th>
+                                <th>Customer</th>
+                                <th>Amount</th>
+                                <th>Date</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="invoice-list">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div id="view-profile" class="view" style="display: none;">
+                <h1>Profile Management</h1>
+                <div class="card form-card">
+                    <form id="profile-form" onsubmit="saveProfile(event)">
+                        <div class="form-group">
+                            <label for="profile-name">Full Name</label>
+                            <input type="text" id="profile-name" name="fullName" value="John Doe" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="profile-country">Country</label>
+                            <select id="profile-country" name="country">
+                                <option value="US">United States</option>
+                                <option value="IN">India</option>
+                                <option value="UK">United Kingdom</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="profile-state">State / Province</label>
+                            <input type="text" id="profile-state" name="state" value="California">
+                        </div>
+                        <div id="profile-alert" class="alert hidden"></div>
+                        <button type="submit" class="btn-primary">Save Profile</button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Settings View -->
+            <div id="view-settings" class="view" style="display: none;">
+                <h1>System Settings</h1>
+                
+                <div class="tabs">
+                    <button class="tab-btn active" data-tab="tab-general">General</button>
+                    <button class="tab-btn" data-tab="tab-notifications">Notifications</button>
+                </div>
+
+                <div class="card">
+                    <div id="tab-general" class="tab-content active">
+                        <form id="settings-general-form" onsubmit="saveSettings(event, 'general')">
+                            <div class="form-group">
+                                <label for="setting-timezone">Timezone</label>
+                                <select id="setting-timezone">
+                                    <option value="UTC">UTC</option>
+                                    <option value="America/New_York">America/New_York</option>
+                                    <option value="Asia/Kolkata">Asia/Kolkata</option>
+                                    <option value="Europe/London">Europe/London</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="setting-theme">Theme</label>
+                                <select id="setting-theme">
+                                    <option value="light">Light</option>
+                                    <option value="dark">Dark</option>
+                                </select>
+                            </div>
+                            <button type="submit" class="btn-primary">Save General</button>
+                            <span id="settings-general-alert" class="alert hidden"></span>
+                        </form>
+                    </div>
+
+                    <div id="tab-notifications" class="tab-content" style="display: none;">
+                        <form id="settings-notifications-form" onsubmit="saveSettings(event, 'notifications')">
+                            <div class="form-group checkbox-group">
+                                <label><input type="checkbox" id="notif-email" checked> Enable Email Notifications</label>
+                            </div>
+                            <div class="form-group checkbox-group">
+                                <label><input type="checkbox" id="notif-sms"> Enable SMS Notifications</label>
+                            </div>
+                            <div class="form-group checkbox-group">
+                                <label><input type="checkbox" id="notif-push" checked> Enable Push Notifications</label>
+                            </div>
+                            <button type="submit" class="btn-primary">Save Notifications</button>
+                            <span id="settings-notifications-alert" class="alert hidden"></span>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Products View -->
+            <div id="view-products" class="view" style="display: none;">
+                <h1>Product Catalog</h1>
+                <div class="card">
+                    <div class="toolbar">
+                        <input type="text" id="product-search" placeholder="Search products...">
+                        <button onclick="searchProducts()">Search</button>
+                    </div>
+                    <div class="product-grid" id="product-list">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Support View -->
+            <div id="view-support" class="view" style="display: none;">
+                <h1>Contact Support</h1>
+                <div class="card form-card">
+                    <form id="support-form" onsubmit="submitSupport(event)">
+                        <div class="form-group">
+                            <label>Issue Category</label>
+                            <div class="radio-group">
+                                <label><input type="radio" name="category" value="billing" checked> Billing</label>
+                                <label><input type="radio" name="category" value="technical"> Technical</label>
+                                <label><input type="radio" name="category" value="general"> General</label>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="support-subject">Subject</label>
+                            <input type="text" id="support-subject" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="support-message">Message</label>
+                            <textarea id="support-message" rows="5" required></textarea>
+                        </div>
+                        <button type="submit" class="btn-primary">Submit Ticket</button>
+                        <div id="support-alert" class="alert hidden"></div>
+                    </form>
+                </div>
+            </div>
+            
+            <!-- Global Search Results -->
+            <div id="view-search-results" class="view" style="display: none;">
+                <h1>Search Results</h1>
+                <div class="card">
+                    <p id="search-query-display">Showing results for: ""</p>
+                    <ul id="search-results-list" class="results-list">
+                        <!-- Populated by JS -->
+                    </ul>
+                </div>
+            </div>
+
+        </section>
+    </main>
+
+    <!-- Generic Modal -->
+    <div id="generic-modal" class="modal-overlay hidden">
+        <div class="modal-content">
+            <h2 id="modal-title">Modal Title</h2>
+            <div id="modal-body">Modal Body Content</div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeModal()">Close</button>
+                <button class="btn-primary" id="modal-action-btn">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="scripts.js"></script>
+</body>
+</html>
