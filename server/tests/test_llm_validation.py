@@ -101,10 +101,10 @@ def test_llm_validation_malformed_responses():
     provider.client = create_mock_client('{"type": "ACTION"}')
     res = provider.analyze(request, "")
     assert res.status == "ACTION"
-    assert res.action is None
+    assert res.steps is None
     
     # 4. Invalid target schema
     provider.client = create_mock_client('{"type": "ACTION", "action": {"type": "click", "target": {"foo": "bar"}}}')
     res = provider.analyze(request, "")
     # Pydantic will allow extra fields if Config allows, but we just want to ensure it doesn't crash the server.
-    assert res.status in ["ACTION", "FAIL"]
+    assert res.status in ["PLAN", "FAIL"]

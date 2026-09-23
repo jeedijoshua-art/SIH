@@ -1,0 +1,322 @@
+392-          if (step.type === 'wait') {
+393-              const ms = parseInt(step.value || '1000', 10);
+394-              await new Promise(r => setTimeout(r, ms));
+395-              result.executed = true;
+396-              result.success = true;
+397-              result.state_changed = true;
+398-              result.after_url = window.location.href;
+399-              result.state_fingerprint_after = hashDOM(analyzeDOM());
+400-              result.verification = { passed: true, reason: `Waited ${ms}ms` };
+401-              return result;
+402-          }
+403-          
+404-          if (step.type === 'scroll') {
+405-              if (step.value === 'down') window.scrollBy({ top: window.innerHeight * 0.8, behavior: 'smooth' });
+406-              else if (step.value === 'up') window.scrollBy({ top: -window.innerHeight * 0.8, behavior: 'smooth' });
+407-              else if (step.value === 'top') window.scrollTo({ top: 0, behavior: 'smooth' });
+408-              else if (step.value === 'bottom') window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+409-              
+410-              await new Promise(r => setTimeout(r, 600));
+411-              result.executed = true;
+412-              result.success = true;
+413-              result.after_url = window.location.href;
+414-              result.state_fingerprint_after = hashDOM(analyzeDOM());
+415-              result.state_changed = (result.state_fingerprint_after !== preFingerprint);
+416-              result.verification = { passed: true, reason: `Scrolled ${step.value}` };
+417-              return result;
+418-          }
+419-
+420-          if (step.type === 'read_page') {
+421-              const text = document.body.innerText.substring(0, 10000);
+422-              result.executed = true;
+423-              result.success = true;
+424-              result.state_changed = false;
+425-              result.verification = { passed: true, reason: `Page text extracted (${text.length} chars)` };
+426-              return result;
+427-          }
+428-
+429-          if (step.type === 'find_text') {
+430-              const term = (step.value || '').toLowerCase();
+431-              const els = Array.from(document.querySelectorAll('*'));
+432-              let found = null;
+433-              for(const e of els) {
+434-                  const el = e as HTMLElement;
+435-                  if(el.innerText && el.innerText.toLowerCase().includes(term) && isVisible(el) && el.children.length === 0) {
+436-                      found = el; break;
+437-                  }
+438-              }
+439-              if(!found) {
+440-                  for(const e of els) {
+441-                      const el = e as HTMLElement;
+442-                      if(el.innerText && el.innerText.toLowerCase().includes(term) && isVisible(el)) {
+443-                          found = el; break;
+444-                      }
+445-                  }
+446-              }
+447-              
+448-              if(found) {
+449-                  found.scrollIntoView({ behavior: 'smooth', block: 'center' });
+450-                  await new Promise(r => setTimeout(r, 600));
+451-                  result.executed = true;
+452-                  result.success = true;
+453-                  result.state_changed = true;
+454-                  result.after_url = window.location.href;
+455-                  result.state_fingerprint_after = hashDOM(analyzeDOM());
+456-                  result.verification = { passed: true, reason: `Found and scrolled to text: ${step.value}` };
+457-              } else {
+458-                  result.verification = { passed: false, reason: `Text not found: ${step.value}` };
+459-              }
+460-              return result;
+461-          }
+462-
+463-          if (!['go_back', 'go_forward', 'no_op', 'navigate', 'press_key', 'read_page', 'find_text', 'click_generic'].includes(step.type)) {
+464-              let el = document.getElementById(target_id) as HTMLElement;
+465-              
+466-              if (!el && step.type === 'click') {
+467-                  // Fallback to natural language resolution if target_id is invalid/missing
+468-                  const candidates = getClickableCandidates();
+469-                  const resolved = resolveElementTarget(step.value || step.action || target_id, candidates);
+470-                  if (resolved && resolved.element) {
+471-                      el = resolved.element;
+472-                  }
+473-              }
+474-
+475-              if (!el) {
+476-                  result.success = false;
+477-                  result.verification = { passed: false, reason: "Element not found in DOM and could not be resolved." };
+478-                  return result;
+479-              }
+480-              
+481-              result.elementFound = true;
+482-              
+483-              if (!isElementVisible(el)) {
+484-                  result.success = false;
+485-                  result.verification = { passed: false, reason: "Element is not visible." };
+486-                  return result;
+487-              }
+488-              result.elementVisible = true;
+489-              
+490-              if ((el as HTMLInputElement).disabled) {
+491-                  result.success = false;
+492-                  result.verification = { passed: false, reason: "Element is disabled." };
+493-                  return result;
+494-              }
+495-              result.elementEnabled = true;
+496-              
+497-              target_id = el.id || "resolved-element"; // Assign a dummy ID if it was resolved
+498-              // We inject the resolved element into the DOM by setting a temporary ID so the rest of the function can find it
+499-              if (!el.id) el.id = "localsight-temp-" + Date.now();
+500-              target_id = el.id;
+501-          }
+502-
+503-          if (step.type === 'click_generic') {
+504-              const candidates = getClickableCandidates();
+505-              const resolved = resolveElementTarget(step.value || step.action || '', candidates);
+506-              
+507-              if (!resolved || !resolved.element) {
+508-                  result.success = false;
+509-                  result.verification = { passed: false, reason: `Could not find a visible clickable link matching '${step.value}'` };
+510-                  return result;
+511-              }
+512-              
+513-              const el = resolved.element;
+514-              try {
+515-                  el.scrollIntoView({ behavior: 'instant', block: 'center' });
+516-                  // Fallback robust click sequence
+517-                  el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+518-                  el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+519-                  el.click();
+520-                  
+521-                  result.executed = true;
+522-                  result.success = true;
+523-                  
+524-                  // Verification: Check if URL changes or navigation starts
+525-                  const currentUrl = window.location.href;
+526-                  await new Promise(r => setTimeout(r, 800)); // wait briefly for navigation
+527-                  if (window.location.href !== currentUrl || document.readyState === 'loading') {
+528-                      result.verification = { passed: true, reason: `Clicked and navigation started to ${resolved.href || 'new page'}` };
+529-                  } else {
+530-                      result.verification = { passed: true, reason: `Clicked element: ${resolved.text.substring(0,30)}` };
+531-                  }
+532-                  
+533-                  result.after_url = window.location.href;
+534-                  return result;
+535-              } catch (e: any) {
+536-                  result.success = false;
+537-                  result.verification = { passed: false, reason: `Error clicking element: ${e.message}` };
+538-                  return result;
+539-              }
+540-          }
+541-          
+542:          const el = document.getElementById(target_id) as HTMLElement;
+543-              if (!el) {
+544-                  result.verification.reason = "Element not found in DOM at execution time.";
+545-                  return result;
+546-              }
+547-              
+548-              result.elementFound = true;
+549-              
+550-              if (!isVisible(el)) {
+551-                  result.verification.reason = "Element is not visible.";
+552-                  return result;
+553-              }
+554-              result.elementVisible = true;
+555-              
+556-              if ((el as HTMLInputElement).disabled) {
+557-                  result.verification.reason = "Element is disabled.";
+558-                  return result;
+559-              }
+560-              result.elementEnabled = true;
+561-          }
+562-
+563:          const el = document.getElementById(target_id) as HTMLElement;
+564-
+565-          try {
+566-              if (step.type === 'click') {
+567-                  try {
+568-                      el.scrollIntoView({ behavior: 'instant', block: 'center' });
+569-                      el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+570-                      el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+571-                      el.click();
+572-                      result.executed = true;
+573-                      result.success = true;
+574-                      await new Promise(r => setTimeout(r, 500));
+575-                      result.verification = { passed: true, reason: 'Element clicked successfully.' };
+576-                  } catch (e: any) {
+577-                      result.success = false;
+578-                      result.verification = { passed: false, reason: 'Failed to click element: ' + e.message };
+579-                  }
+580-              } else if (step.type === 'type') {
+581-                  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+582-                      el.focus();
+583-                      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+584-                      const nativeTextAreaValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+585-                      const setter = el instanceof HTMLTextAreaElement ? nativeTextAreaValueSetter : nativeInputValueSetter;
+586-                      
+587-                      if (setter) {
+588-                          setter.call(el, step.value || '');
+589-                      } else {
+590-                          el.value = step.value || '';
+591-                      }
+592-                      
+593-                      el.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+594-                      el.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+595-                      result.executed = true;
+596-                  } else {
+597-                      result.verification.reason = "Target is not an input or textarea.";
+598-                      return result;
+599-                  }
+600-              } else if (step.type === 'clear') {
+601-                  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+602-                      el.focus();
+603-                      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+604-                      const nativeTextAreaValueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+605-                      const setter = el instanceof HTMLTextAreaElement ? nativeTextAreaValueSetter : nativeInputValueSetter;
+606-                      
+607-                      if (setter) {
+608-                          setter.call(el, '');
+609-                      } else {
+610-                          el.value = '';
+611-                      }
+612-                      
+613-                      el.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+614-                      el.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+615-                      result.executed = true;
+616-                  } else {
+617-                      result.verification.reason = "Target is not an input or textarea.";
+618-                      return result;
+619-                  }
+620-              } else if (step.type === 'focus') {
+621-                  el.focus();
+622-                  result.executed = true;
+623-              } else if (step.type === 'hover') {
+624-                  el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+625-                  el.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+626-                  result.executed = true;
+627-              } else if (step.type === 'submit') {
+628-                  if (el instanceof HTMLFormElement) {
+629-                      el.submit();
+630-                      result.executed = true;
+631-                  } else if (el.closest('form')) {
+632-                      el.closest('form')?.submit();
+633-                      result.executed = true;
+634-                  } else {
+635-                      el.click();
+636-                      result.executed = true;
+637-                  }
+638-              } else if (step.type === 'select') {
+639-                  if (el instanceof HTMLSelectElement) {
+640-                      const val = step.value?.toLowerCase() || '';
+641-                      let found = false;
+642-                      for (let i=0; i<el.options.length; i++) {
+643-                          if (el.options[i].value.toLowerCase() === val || el.options[i].text.toLowerCase().includes(val)) {
+644-                              el.selectedIndex = i;
+645-                              found = true;
+646-                              break;
+647-                          }
+648-                      }
+649-                      if (!found) {
+650-                          result.verification.reason = `Option '${val}' not found in select dropdown.`;
+651-                          return result;
+652-                      }
+653-                      el.dispatchEvent(new Event('change', { bubbles: true }));
+654-                      result.executed = true;
+655-                  } else {
+656-                      result.verification.reason = "Target is not a select element.";
+657-                      return result;
+658-                  }
+659-              } else if (step.type === 'check') {
+660-                  if (el instanceof HTMLInputElement && el.type === 'checkbox') {
+661-                      if (!el.checked) {
+662-                          el.click();
+663-                          el.dispatchEvent(new Event('change', { bubbles: true }));
+664-                      }
+665-                      result.executed = true;
+666-                  } else {
+667-                      result.verification.reason = "Target is not a checkbox.";
+668-                      return result;
+669-                  }
+670-              } else if (step.type === 'uncheck') {
+671-                  if (el instanceof HTMLInputElement && el.type === 'checkbox') {
+672-                      if (el.checked) {
+673-                          el.click();
+674-                          el.dispatchEvent(new Event('change', { bubbles: true }));
+675-                      }
+676-                      result.executed = true;
+677-                  } else {
+678-                      result.verification.reason = "Target is not a checkbox.";
+679-                      return result;
+680-                  }
+681-              } else if (step.type === 'navigate') {
+682-                  if (step.value) {
+683-                      window.location.href = step.value;
+684-                      result.executed = true;
+685-                  } else {
+686-                      result.verification.reason = "Missing URL for navigate action.";
+687-                      return result;
+688-                  }
+689-              } else if (step.type === 'go_back') {
+690-                  window.history.back();
+691-                  result.executed = true;
+692-              } else if (step.type === 'go_forward') {
+693-                  window.history.forward();
+694-                  result.executed = true;
+695-              } else if (step.type === 'no_op') {
+696-                  result.executed = true;
+697-              } else if (step.type === 'press_key') {
+698-                  if (step.value === 'Enter') {
+699-                      const target = el || document.activeElement || document.body;
+700-                      target.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
+701-                      target.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
+702-                      if (el && el.tagName === 'INPUT') el.closest('form')?.dispatchEvent(new Event('submit', { bubbles: true }));
+703-                      result.executed = true;
+704-                  } else if (step.value === 'Escape') {
+705-                      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true }));
+706-                      result.executed = true;
+707-                  } else {
+708-                      result.verification.reason = `Unsupported key: ${step.value}`;
+709-                      return result;
+710-                  }
+711-              } else {
+712-                  result.verification.reason = `Unknown action type: ${step.type}`;
+713-                  return result;

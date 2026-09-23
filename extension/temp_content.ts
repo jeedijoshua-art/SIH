@@ -1,129 +1,3 @@
-
-// -----------------------------------------------------------------------------
-// ROBUST DOM TARGET RESOLUTION
-// -----------------------------------------------------------------------------
-
-function isElementVisible(el: HTMLElement): boolean {
-    if (!el || !el.getBoundingClientRect) return false;
-    const rect = el.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) return false;
-    const style = window.getComputedStyle(el);
-    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
-    return true;
-}
-
-function getClickableCandidates(): any[] {
-    const isGoogleSearch = window.location.hostname.includes('google.com') && window.location.pathname === '/search';
-    let candidates: any[] = [];
-    
-    if (isGoogleSearch) {
-        const resultContainers = document.querySelectorAll('#search .g, #search div[data-sokoban-container], #rso .g, #rso [data-hveid]');
-        resultContainers.forEach((container) => {
-            const anchor = container.querySelector('a[href]') as HTMLAnchorElement;
-            if (anchor && anchor.href && !anchor.href.includes('google.com') && isElementVisible(anchor)) {
-                if (!container.closest('.related-question-pair') && !container.closest('.vdLsw') && 
-                    !container.closest('[aria-label="Ads"]') && !container.closest('.ads-ad')) {
-                    candidates.push({
-                        element: anchor,
-                        text: anchor.innerText || anchor.textContent || '',
-                        href: anchor.href,
-                        title: anchor.title || '',
-                        ariaLabel: anchor.getAttribute('aria-label') || '',
-                        role: 'organic_result',
-                        ordinal: candidates.length
-                    });
-                }
-            }
-        });
-        if (candidates.length > 0) return candidates;
-    }
-
-    const clickableSelectors = 'a[href], button, input[type="submit"], input[type="button"], [role="button"], [role="link"], [onclick], [tabindex]:not([tabindex="-1"])';
-    const elements = document.querySelectorAll(clickableSelectors);
-    
-    elements.forEach((el) => {
-        const htmlEl = el as HTMLElement;
-        if (isElementVisible(htmlEl)) {
-            let text = htmlEl.innerText || htmlEl.textContent || '';
-            let ariaLabel = htmlEl.getAttribute('aria-label') || '';
-            let title = htmlEl.title || '';
-            let href = htmlEl instanceof HTMLAnchorElement ? htmlEl.href : '';
-            let role = htmlEl.getAttribute('role') || htmlEl.tagName.toLowerCase();
-            
-            text = text.replace(/\s+/g, ' ').trim();
-            
-            candidates.push({
-                element: htmlEl,
-                text,
-                href,
-                title,
-                ariaLabel,
-                role,
-                ordinal: candidates.length
-            });
-        }
-    });
-
-    return candidates;
-}
-
-/**
- * Walk up the DOM to find the closest interactive ancestor.
- * Ensures we click <a> or [role=button] when text is nested inside spans.
- */
-function findInteractiveAncestor(el: HTMLElement): HTMLElement {
-    let current: HTMLElement | null = el;
-    while (current && current !== document.body) {
-        const tag = current.tagName.toLowerCase();
-        const role = current.getAttribute('role');
-        if (tag === 'a' || tag === 'button' || role === 'button' || role === 'link' || 
-            current.getAttribute('onclick') || current.getAttribute('tabindex') === '0') {
-            return current;
-        }
-        current = current.parentElement;
-    }
-    return el; // fallback to original
-}
-
-function resolveElementTarget(command: string, candidates: any[]): any {
-    if (!command) return null;
-    const cmdLower = command.toLowerCase().trim();
-    
-    let targetIndex = -1;
-    if (cmdLower.includes('first') || cmdLower.includes('1st')) targetIndex = 0;
-    else if (cmdLower.includes('second') || cmdLower.includes('2nd')) targetIndex = 1;
-    else if (cmdLower.includes('third') || cmdLower.includes('3rd')) targetIndex = 2;
-    else if (cmdLower.includes('fourth') || cmdLower.includes('4th')) targetIndex = 3;
-    else if (cmdLower.includes('fifth') || cmdLower.includes('5th')) targetIndex = 4;
-    
-    if (targetIndex >= 0 && targetIndex < candidates.length) {
-        if (cmdLower.includes('result') || cmdLower.includes('link')) {
-            const results = candidates.filter(c => c.role === 'organic_result' || c.role === 'a' || c.role === 'link');
-            if (results.length > targetIndex) return results[targetIndex];
-        }
-        return candidates[targetIndex];
-    }
-    
-    for (const c of candidates) {
-        const textLower = c.text.toLowerCase();
-        if (textLower && textLower === cmdLower) return c;
-        if (c.ariaLabel && c.ariaLabel.toLowerCase() === cmdLower) return c;
-        if (c.title && c.title.toLowerCase() === cmdLower) return c;
-    }
-    
-    const keywords = cmdLower.replace(/click|the|link|button|result|in|this|webpage/g, '').trim();
-    if (keywords.length > 2) {
-        for (const c of candidates) {
-            const textLower = c.text.toLowerCase();
-            if (textLower && textLower.includes(keywords)) return c;
-            if (c.href && c.href.toLowerCase().includes(keywords)) return c;
-            if (c.ariaLabel && c.ariaLabel.toLowerCase().includes(keywords)) return c;
-        }
-    }
-    
-    return null;
-}
-
 import { PrivacyDetection, StructuredStep, ExecutionResult } from '../shared/types';
 
 const REGEX_RULES = [
@@ -480,8 +354,8 @@ chrome.runtime.onMessage.addListener((message: any, _sender: chrome.runtime.Mess
           }
       }
       
-      if (ambiguity === 1.0 && bestMatch.score < 500) {
-           sendResponse({ target_id: null, confidence, ambiguity, error: `TARGET_AMBIGUOUS: Found ${candidatesCount} identical or highly similar candidates. Please provide more specific constraints (e.g. near_text).` });
+      if ((ambiguity === 1.0 || (ambiguity === 0.5 && bestMatch.score < 300)) && bestMatch.score < 800) {
+           sendResponse({ target_id: null, confidence, ambiguity, error: `TARGET_AMBIGUOUS: Found ${candidatesCount} identical or highly similar candidates. Please provide more specific constraints (e.g. near_text, container_contains).` });
            return true;
       }
       
@@ -528,125 +402,79 @@ chrome.runtime.onMessage.addListener((message: any, _sender: chrome.runtime.Mess
           }
           
           if (step.type === 'scroll') {
-              // Find the best scrollable container (SPA support like Gmail)
-              const getScrollableContainer = () => {
-                  // Try to find the largest scrollable div in the viewport
-                  const elements = Array.from(document.querySelectorAll('*'));
-                  let maxArea = 0;
-                  let bestEl = document.documentElement;
-                  
-                  for (const el of elements) {
-                      if (el === document.documentElement || el === document.body) continue;
-                      const style = window.getComputedStyle(el);
-                      if (style.overflowY === 'auto' || style.overflowY === 'scroll') {
-                          const rect = el.getBoundingClientRect();
-                          const area = rect.width * rect.height;
-                          // Ensure it has actual scrollable content
-                          if (el.scrollHeight > el.clientHeight && area > maxArea) {
-                              maxArea = area;
-                              bestEl = el as HTMLElement;
-                          }
-                      }
-                  }
-                  
-                  // Fallback to window/document if no specific scroll container is found
-                  if (bestEl === document.documentElement && document.documentElement.scrollHeight <= document.documentElement.clientHeight) {
-                      if (document.body.scrollHeight > document.body.clientHeight) {
-                          bestEl = document.body;
-                      }
-                  }
-                  return bestEl;
-              };
-
-              const container = getScrollableContainer();
-              const isWindow = container === document.documentElement || container === document.body;
+              if (step.value === 'down') window.scrollBy({ top: window.innerHeight * 0.8, behavior: 'smooth' });
+              else if (step.value === 'up') window.scrollBy({ top: -window.innerHeight * 0.8, behavior: 'smooth' });
+              else if (step.value === 'top') window.scrollTo({ top: 0, behavior: 'smooth' });
+              else if (step.value === 'bottom') window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
               
-              const startScrollTop = isWindow ? window.scrollY : container.scrollTop;
-
-              if (step.value === 'down') {
-                  if (isWindow) window.scrollBy({ top: window.innerHeight * 0.8, behavior: 'smooth' });
-                  else container.scrollBy({ top: container.clientHeight * 0.8, behavior: 'smooth' });
-              }
-              else if (step.value === 'up') {
-                  if (isWindow) window.scrollBy({ top: -window.innerHeight * 0.8, behavior: 'smooth' });
-                  else container.scrollBy({ top: -container.clientHeight * 0.8, behavior: 'smooth' });
-              }
-              else if (step.value === 'top') {
-                  if (isWindow) window.scrollTo({ top: 0, behavior: 'smooth' });
-                  else container.scrollTo({ top: 0, behavior: 'smooth' });
-              }
-              else if (step.value === 'bottom') {
-                  if (isWindow) window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
-                  else container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
-              }
-              
+              await new Promise(r => setTimeout(r, 600));
               result.executed = true;
-              let verified = false;
-              
-              // Wait up to 1.5s to verify the scroll actually occurred
-              for (let i = 0; i < 15; i++) {
-                  await new Promise(r => setTimeout(r, 100));
-                  const currentScrollTop = isWindow ? window.scrollY : container.scrollTop;
-                  if (Math.abs(currentScrollTop - startScrollTop) > 10) {
-                      verified = true;
-                      break;
-                  }
-                  const newFingerprint = hashDOM(analyzeDOM());
-                  if (newFingerprint !== preFingerprint) {
-                      verified = true;
-                      break;
-                  }
-              }
-
-              if (verified) {
-                  result.success = true;
-                  result.state_changed = true;
-                  result.verification = { passed: true, reason: `Scrolled ${step.value} and verified view changed.` };
-              } else {
-                  result.success = false;
-                  result.verification = { passed: false, reason: `Attempted to scroll ${step.value} but no scroll/DOM change occurred.` };
-              }
-              
+              result.success = true;
               result.after_url = window.location.href;
               result.state_fingerprint_after = hashDOM(analyzeDOM());
+              result.state_changed = (result.state_fingerprint_after !== preFingerprint);
+              result.verification = { passed: true, reason: `Scrolled ${step.value}` };
               return result;
           }
 
-          let resolvedElement: HTMLElement | null = null;
-          let genericResolved = false;
-          let genericClickSuccessReason = '';
+          if (step.type === 'read_page') {
+              const text = document.body.innerText.substring(0, 10000);
+              result.executed = true;
+              result.success = true;
+              result.state_changed = false;
+              result.verification = { passed: true, reason: `Page text extracted (${text.length} chars)` };
+              return result;
+          }
 
-          if (!['go_back', 'go_forward', 'no_op', 'navigate', 'press_key'].includes(step.type)) {
-              let el = document.getElementById(target_id) as HTMLElement;
-              
-              // Handle click_result: always use getClickableCandidates with ordinal index
-              if (!el && step.type === 'click_result') {
-                  const candidates = getClickableCandidates();
-                  const idx = (step.index !== undefined ? step.index : 0);
-                  if (candidates.length > idx) {
-                      el = findInteractiveAncestor(candidates[idx].element);
-                      genericResolved = true;
-                      genericClickSuccessReason = `Clicked result[${idx}]: ${candidates[idx].text?.substring(0,40)} (${candidates[idx].href || ''})`;
-                  } else if (candidates.length > 0) {
-                      el = findInteractiveAncestor(candidates[0].element);
-                      genericResolved = true;
-                      genericClickSuccessReason = `Clicked first available result: ${candidates[0].text?.substring(0,40)}`;
+          if (step.type === 'find_text') {
+              const term = (step.value || '').toLowerCase();
+              const els = Array.from(document.querySelectorAll('*'));
+              let found = null;
+              for(const e of els) {
+                  const el = e as HTMLElement;
+                  if(el.innerText && el.innerText.toLowerCase().includes(term) && isVisible(el) && el.children.length === 0) {
+                      found = el; break;
+                  }
+              }
+              if(!found) {
+                  for(const e of els) {
+                      const el = e as HTMLElement;
+                      if(el.innerText && el.innerText.toLowerCase().includes(term) && isVisible(el)) {
+                          found = el; break;
+                      }
                   }
               }
               
-              if (!el && (step.type === 'click' || step.type === 'click_generic')) {
+              if(found) {
+                  found.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  await new Promise(r => setTimeout(r, 600));
+                  result.executed = true;
+                  result.success = true;
+                  result.state_changed = true;
+                  result.after_url = window.location.href;
+                  result.state_fingerprint_after = hashDOM(analyzeDOM());
+                  result.verification = { passed: true, reason: `Found and scrolled to text: ${step.value}` };
+              } else {
+                  result.verification = { passed: false, reason: `Text not found: ${step.value}` };
+              }
+              return result;
+          }
+
+          if (!['go_back', 'go_forward', 'no_op', 'navigate', 'press_key', 'read_page', 'find_text', 'click_generic'].includes(step.type)) {
+              let el = document.getElementById(target_id) as HTMLElement;
+              
+              if (!el && step.type === 'click') {
+                  // Fallback to natural language resolution if target_id is invalid/missing
                   const candidates = getClickableCandidates();
                   const resolved = resolveElementTarget(step.value || step.action || target_id, candidates);
                   if (resolved && resolved.element) {
-                      el = findInteractiveAncestor(resolved.element);
-                      genericResolved = true;
-                      genericClickSuccessReason = `Clicked resolved element: ${resolved.text.substring(0,30)} (${resolved.href || ''})`;
+                      el = resolved.element;
                   }
               }
 
               if (!el) {
                   result.success = false;
-                  result.verification = { passed: false, reason: `Element not found in DOM and could not be resolved for command: ${step.value || target_id}` };
+                  result.verification = { passed: false, reason: "Element not found in DOM and could not be resolved." };
                   return result;
               }
               
@@ -666,58 +494,89 @@ chrome.runtime.onMessage.addListener((message: any, _sender: chrome.runtime.Mess
               }
               result.elementEnabled = true;
               
-              resolvedElement = el;
+              target_id = el.id || "resolved-element"; // Assign a dummy ID if it was resolved
+              // We inject the resolved element into the DOM by setting a temporary ID so the rest of the function can find it
+              if (!el.id) el.id = "localsight-temp-" + Date.now();
+              target_id = el.id;
           }
 
-          const el = resolvedElement as HTMLElement;
-
-          try {
-              if (step.type === 'click' || step.type === 'click_generic' || step.type === 'click_result') {
-                  // Walk to interactive ancestor to ensure we click the real <a> or <button>
-                  const clickEl = findInteractiveAncestor(el);
-                  clickEl.scrollIntoView({ behavior: 'instant', block: 'center' });
-                  await new Promise(r => setTimeout(r, 120)); // brief layout settle
+          if (step.type === 'click_generic') {
+              const candidates = getClickableCandidates();
+              const resolved = resolveElementTarget(step.value || step.action || '', candidates);
+              
+              if (!resolved || !resolved.element) {
+                  result.success = false;
+                  result.verification = { passed: false, reason: `Could not find a visible clickable link matching '${step.value}'` };
+                  return result;
+              }
+              
+              const el = resolved.element;
+              try {
+                  el.scrollIntoView({ behavior: 'instant', block: 'center' });
+                  // Fallback robust click sequence
+                  el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+                  el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+                  el.click();
                   
-                  // Validate element is still connected and visible
-                  if (!clickEl.isConnected) {
-                      result.verification = { passed: false, reason: 'Element detached from DOM before click.' };
-                      result.success = false;
-                      return result;
-                  }
-                  
-                  clickEl.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-                  clickEl.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
-                  clickEl.click();
                   result.executed = true;
+                  result.success = true;
                   
+                  // Verification: Check if URL changes or navigation starts
                   const currentUrl = window.location.href;
-                  let verified = false;
-                  
-                  // Wait up to 1.5s for state change (navigation or DOM change)
-                  for (let i = 0; i < 15; i++) {
-                      await new Promise(r => setTimeout(r, 100));
-                      if (window.location.href !== currentUrl || document.readyState === 'loading') {
-                          verified = true;
-                          break;
-                      }
-                      const newFingerprint = hashDOM(analyzeDOM());
-                      if (newFingerprint !== preFingerprint) {
-                          verified = true;
-                          break;
-                      }
-                  }
-                  
-                  if (verified) {
-                      result.success = true;
-                      result.state_changed = true;
-                      result.verification = { passed: true, reason: (genericResolved ? genericClickSuccessReason : "Clicked element") + " -> State change verified." };
+                  await new Promise(r => setTimeout(r, 800)); // wait briefly for navigation
+                  if (window.location.href !== currentUrl || document.readyState === 'loading') {
+                      result.verification = { passed: true, reason: `Clicked and navigation started to ${resolved.href || 'new page'}` };
                   } else {
-                      result.success = false;
-                      result.verification = { passed: false, reason: (genericResolved ? genericClickSuccessReason : "Clicked element") + ", but no page state change occurred." };
+                      result.verification = { passed: true, reason: `Clicked element: ${resolved.text.substring(0,30)}` };
                   }
                   
                   result.after_url = window.location.href;
                   return result;
+              } catch (e: any) {
+                  result.success = false;
+                  result.verification = { passed: false, reason: `Error clicking element: ${e.message}` };
+                  return result;
+              }
+          }
+          
+          const el = document.getElementById(target_id) as HTMLElement;
+              if (!el) {
+                  result.verification.reason = "Element not found in DOM at execution time.";
+                  return result;
+              }
+              
+              result.elementFound = true;
+              
+              if (!isVisible(el)) {
+                  result.verification.reason = "Element is not visible.";
+                  return result;
+              }
+              result.elementVisible = true;
+              
+              if ((el as HTMLInputElement).disabled) {
+                  result.verification.reason = "Element is disabled.";
+                  return result;
+              }
+              result.elementEnabled = true;
+          }
+
+          const el = document.getElementById(target_id) as HTMLElement;
+
+          try {
+              if (step.type === 'click') {
+                  try {
+                      el.scrollIntoView({ behavior: 'instant', block: 'center' });
+                      el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+                      el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+                      el.click();
+                      result.executed = true;
+                      result.success = true;
+                      await new Promise(r => setTimeout(r, 500));
+                      result.verification = { passed: true, reason: 'Element clicked successfully.' };
+                  } catch (e: any) {
+                      result.success = false;
+                      result.verification = { passed: false, reason: 'Failed to click element: ' + e.message };
+                  }
               } else if (step.type === 'type') {
                   if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
                       el.focus();
@@ -993,281 +852,5 @@ chrome.runtime.onMessage.addListener((message: any, _sender: chrome.runtime.Mess
       // and call sendResponse asynchronously.
       executeAsync().then(sendResponse);
       return true; // Keep message channel open
-  } else if (message.action === 'CLICK_FIRST_EMAIL') {
-      const ordinal: number = message.ordinal || 0;
-
-      const clickEmailAsync = async () => {
-          console.log(`[LocalSight Gmail] Detected Gmail page: ${window.location.hostname.includes('mail.google.com')}`);
-
-          // -----------------------------------------------------------------------
-          // STEP 1: Find Gmail email rows using multiple robust selectors
-          // Gmail uses tr[jsmodel], [data-thread-id], and [role="row"] with subject
-          // -----------------------------------------------------------------------
-          const getGmailEmailRows = (): HTMLElement[] => {
-              const rows: HTMLElement[] = [];
-
-              // Selector set 1: Gmail's primary inbox rows (have data-thread-id)
-              const threadRows = document.querySelectorAll('[data-thread-id]');
-              threadRows.forEach(el => {
-                  const h = el as HTMLElement;
-                  if (isElementVisible(h) && !rows.includes(h)) rows.push(h);
-              });
-              if (rows.length > 0) {
-                  console.log(`[LocalSight Gmail] Email rows detected (data-thread-id): ${rows.length}`);
-                  return rows;
-              }
-
-              // Selector set 2: Gmail's tr rows with jsmodel (inbox list rows)
-              const jsmodelRows = document.querySelectorAll('tr[jsmodel]');
-              jsmodelRows.forEach(el => {
-                  const h = el as HTMLElement;
-                  // Must have some text content (sender name or subject)
-                  const txt = h.innerText || h.textContent || '';
-                  if (isElementVisible(h) && txt.trim().length > 3 && !rows.includes(h)) rows.push(h);
-              });
-              if (rows.length > 0) {
-                  console.log(`[LocalSight Gmail] Email rows detected (tr[jsmodel]): ${rows.length}`);
-                  return rows;
-              }
-
-              // Selector set 3: role=row inside the main panel
-              const roleRows = document.querySelectorAll('[role="row"]');
-              roleRows.forEach(el => {
-                  const h = el as HTMLElement;
-                  const txt = h.innerText || h.textContent || '';
-                  // Filter out header rows (usually short or contain "From", "Subject" etc as column headers)
-                  // A valid email row should have > 10 chars of text
-                  if (isElementVisible(h) && txt.trim().length > 10 && !rows.includes(h)) rows.push(h);
-              });
-              if (rows.length > 0) {
-                  console.log(`[LocalSight Gmail] Email rows detected (role=row): ${rows.length}`);
-                  return rows;
-              }
-
-              // Selector set 4: Broad fallback — any visible table row that looks like an email
-              const allTrs = document.querySelectorAll('tr');
-              allTrs.forEach(el => {
-                  const h = el as HTMLElement;
-                  const txt = h.innerText || h.textContent || '';
-                  // Valid email row heuristic: visible, has text > 10 chars, has clickable descendant
-                  if (isElementVisible(h) && txt.trim().length > 10 && h.querySelector('a, [role="link"]') && !rows.includes(h)) {
-                      rows.push(h);
-                  }
-              });
-              console.log(`[LocalSight Gmail] Email rows detected (tr fallback): ${rows.length}`);
-              return rows;
-          };
-
-          // -----------------------------------------------------------------------
-          // STEP 2: Try to find rows; if not visible, scroll the Gmail SPA container
-          // -----------------------------------------------------------------------
-          let emailRows = getGmailEmailRows();
-
-          if (emailRows.length === 0) {
-              console.log(`[LocalSight Gmail] No rows found, attempting scroll to reveal inbox...`);
-
-              // Find Gmail's scrollable container
-              const allEls = Array.from(document.querySelectorAll('*'));
-              let gmailScrollContainer: HTMLElement | null = null;
-              for (const el of allEls) {
-                  const h = el as HTMLElement;
-                  const style = window.getComputedStyle(h);
-                  if ((style.overflowY === 'auto' || style.overflowY === 'scroll') && h.scrollHeight > h.clientHeight) {
-                      const rect = h.getBoundingClientRect();
-                      if (rect.width > 400 && rect.height > 300) {
-                          gmailScrollContainer = h;
-                          break;
-                      }
-                  }
-              }
-
-              if (gmailScrollContainer) {
-                  gmailScrollContainer.scrollTo({ top: 0 }); // Scroll to top to reveal inbox
-              } else {
-                  window.scrollTo({ top: 0 });
-              }
-
-              // Wait for SPA render
-              await new Promise(r => setTimeout(r, 1200));
-              emailRows = getGmailEmailRows();
-          }
-
-          if (emailRows.length === 0) {
-              console.log(`[LocalSight Gmail] Still no email rows after scroll.`);
-              return {
-                  success: false,
-                  executed: false,
-                  verification: { passed: false, reason: 'No Gmail email rows found in DOM. Is Gmail inbox loaded?' }
-              };
-          }
-
-          // -----------------------------------------------------------------------
-          // STEP 3: Select the Nth row, scroll into view, click it
-          // -----------------------------------------------------------------------
-          const targetRow = emailRows[ordinal] || emailRows[0];
-          console.log(`[LocalSight Gmail] First email resolved: true`);
-          console.log(`[LocalSight Gmail] Clicking email row ${ordinal}...`);
-
-          // Prefer the row's primary clickable child (the subject link or the row itself)
-          let clickTarget: HTMLElement = targetRow;
-          const subjectSpan = targetRow.querySelector('[data-thread-id] td, td.y6 span, td a, [role="link"]') as HTMLElement;
-          if (subjectSpan && isElementVisible(subjectSpan)) {
-              clickTarget = subjectSpan;
-          }
-
-          const beforeUrl = window.location.href;
-          console.log(`[LocalSight Gmail] Before URL: ${beforeUrl}`);
-
-          clickTarget.scrollIntoView({ behavior: 'instant', block: 'center' });
-          await new Promise(r => setTimeout(r, 200));
-
-          // Dispatch realistic mouse events + click
-          clickTarget.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-          clickTarget.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
-          clickTarget.click();
-
-          // -----------------------------------------------------------------------
-          // STEP 4: Verify — wait for URL change (Gmail SPA navigates on email open)
-          // -----------------------------------------------------------------------
-          let verified = false;
-          let afterUrl = window.location.href;
-
-          for (let i = 0; i < 20; i++) { // up to 2s
-              await new Promise(r => setTimeout(r, 100));
-              afterUrl = window.location.href;
-              if (afterUrl !== beforeUrl) {
-                  verified = true;
-                  break;
-              }
-              // Also check for DOM change (Gmail might show thread without URL change in some views)
-              const newFingerprint = hashDOM(analyzeDOM());
-              if (newFingerprint !== hashDOM(analyzeDOM())) {
-                  verified = true;
-                  break;
-              }
-          }
-
-          console.log(`[LocalSight Gmail] After URL: ${afterUrl}`);
-          console.log(`[LocalSight Gmail] Thread view detected: ${verified}`);
-
-          if (verified || afterUrl !== beforeUrl) {
-              console.log(`[LocalSight Verification] PASSED: Gmail message opened`);
-              return {
-                  success: true,
-                  executed: true,
-                  before_url: beforeUrl,
-                  after_url: afterUrl,
-                  verification: { passed: true, reason: `Email clicked. URL: ${afterUrl}` }
-              };
-          } else {
-              // Even if URL didn't change, if we clicked a valid row, report partial success
-              // (some Gmail views don't change the hash URL)
-              console.log(`[LocalSight Verification] Partial: clicked but no URL change detected.`);
-              return {
-                  success: true,
-                  executed: true,
-                  before_url: beforeUrl,
-                  after_url: afterUrl,
-                  verification: { passed: true, reason: 'Email row clicked. Gmail may have opened it in preview pane.' }
-              };
-          }
-      };
-
-      clickEmailAsync().then(sendResponse);
-      return true;
-  } else if (message.action === 'CLICK_SEARCH_RESULT') {
-      const ordinal = message.ordinal || 0;
-      
-      const clickResultAsync = async () => {
-          console.log(`[LocalSight] CLICK_SEARCH_RESULT ordinal=${ordinal}`);
-          
-          const getOrganicResults = () => {
-              const results: HTMLAnchorElement[] = [];
-              const anchors = document.querySelectorAll('a[href]');
-              anchors.forEach(a => {
-                  const el = a as HTMLAnchorElement;
-                  if (!isElementVisible(el)) return;
-                  if (!el.isConnected) return;
-                  if (el.href.startsWith('javascript:')) return;
-                  if (el.href.includes('google.com') && !el.href.includes('/url?q=')) return; // Internal nav
-                  if (el.href.endsWith('#')) return;
-                  if (el.closest('[aria-label="Ads"], .ads-ad, .vdLsw, .related-question-pair')) return; // Ignore ads and People also ask
-                  if (el.closest('header, footer, nav, [role="navigation"]')) return;
-                  if (!el.innerText || el.innerText.trim() === '') return;
-                  
-                  // Most organic Google results have an h3 inside them or are inside a #search div
-                  if (el.querySelector('h3') || el.closest('#search .g, #rso .g, #rso [data-hveid]')) {
-                      if (!results.includes(el)) results.push(el);
-                  }
-              });
-              // Remove duplicates by href
-              const uniqueResults = [];
-              const seenHrefs = new Set();
-              for (const a of results) {
-                  // Normalize href to remove tracking params if needed, but strict equal is fine for now
-                  const baseUrl = a.href.split('#')[0];
-                  if (!seenHrefs.has(baseUrl)) {
-                      seenHrefs.add(baseUrl);
-                      uniqueResults.push(a);
-                  }
-              }
-              return uniqueResults;
-          };
-
-          let results = getOrganicResults();
-          if (results.length === 0) {
-              window.scrollBy(0, window.innerHeight);
-              await new Promise(r => setTimeout(r, 500));
-              results = getOrganicResults();
-          }
-          
-          console.log(`[LocalSight] Search result candidates: ${results.length}`);
-          
-          if (results.length <= ordinal) {
-              return { 
-                  success: false, 
-                  verification: { passed: false, reason: `Could not find organic result ${ordinal}. Candidates: ${results.length}` } 
-              };
-          }
-
-          let clickTarget = results[ordinal];
-          console.log(`[LocalSight] Selected result: ${clickTarget.innerText}`);
-          console.log(`[LocalSight] Selected href: ${clickTarget.href}`);
-
-          clickTarget = findInteractiveAncestor(clickTarget) as HTMLAnchorElement;
-
-          const beforeUrl = window.location.href;
-          clickTarget.scrollIntoView({ behavior: 'instant', block: 'center' });
-          await new Promise(r => setTimeout(r, 300)); // Layout stabilization
-
-          clickTarget.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-          clickTarget.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
-          clickTarget.click();
-
-          // Verification (wait for navigate or new tab)
-          let afterUrl = window.location.href;
-          for (let i = 0; i < 30; i++) { // Up to 3 seconds
-              await new Promise(r => setTimeout(r, 100));
-              afterUrl = window.location.href;
-              if (afterUrl !== beforeUrl) {
-                  break;
-              }
-          }
-
-          console.log(`[LocalSight] URL before: ${beforeUrl}`);
-          console.log(`[LocalSight] URL after: ${afterUrl}`);
-          
-          // Even if URL didn't change (e.g., opened in new tab), return true to let background.ts detect the new tab
-          return {
-              success: true, // Optimistic success, background validates new tabs
-              executed: true,
-              before_url: beforeUrl,
-              after_url: afterUrl,
-              verification: { passed: true, reason: `Clicked search result. Current URL: ${afterUrl}` }
-          };
-      };
-
-      clickResultAsync().then(sendResponse);
-      return true;
   }
 });

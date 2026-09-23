@@ -62,6 +62,10 @@ class AnalyzeRequest(BaseModel):
     history: List[HistoryItem] = []
     conversation_history: List[Message] = []
 
+class IntentRequest(BaseModel):
+    task: str
+    conversation_history: List[Message] = []
+
 class Target(BaseModel):
     text: Optional[str] = None
     label: Optional[str] = None
@@ -73,18 +77,23 @@ class Target(BaseModel):
 from typing import Literal
 
 class StructuredStep(BaseModel):
-    type: Literal["click", "type", "clear", "select", "check", "uncheck", "scroll", "hover", "focus", "submit", "wait", "navigate", "go_back", "go_forward", "press_key", "no_op"] = Field(description="Action type")
+    type: Literal["click", "type", "clear", "select", "check", "uncheck", "scroll", "hover", "focus", "submit", "wait", "navigate", "go_back", "go_forward", "press_key", "no_op", "open_tab", "close_tab", "switch_tab", "list_tabs", "get_active_tab", "reload", "read_page", "find_text", "search"] = Field(description="Action type")
     target: Optional[Union[str, Target]] = None
     value: Optional[str] = None
+
+class PlannedStep(BaseModel):
+    action: StructuredStep
+    verify_type: Literal["URL_CHANGE", "VALUE_CHANGE", "DOM_CHANGE", "NONE"]
 
 from typing import Union
 StructuredStep.model_rebuild()
 
 class AnalyzeResponse(BaseModel):
     success: bool
-    status: str # ACTION, CHAT, SUCCESS, FAIL, NEEDS_USER
+    status: str # ACTION, PLAN, CHAT, SUCCESS, FAIL, NEEDS_USER
     reply: Optional[str] = None
     reasoning: Optional[str] = None
     action: Optional[StructuredStep] = None
+    steps: Optional[List[PlannedStep]] = None
     error: Optional[str] = None
     provider: Optional[Dict[str, str]] = None

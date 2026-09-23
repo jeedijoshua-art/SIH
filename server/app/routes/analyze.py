@@ -1,8 +1,26 @@
 from fastapi import APIRouter, HTTPException, Depends
-from app.models.domain import AnalyzeRequest, AnalyzeResponse
+from app.models.domain import AnalyzeRequest, AnalyzeResponse, IntentRequest
 from app.services.agent_service import get_vlm_provider, FusionProvider
 
 router = APIRouter()
+
+@router.post("/intent", response_model=AnalyzeResponse)
+def analyze_intent(request: IntentRequest, provider: FusionProvider = Depends(get_vlm_provider)):
+    print("[AGENT] intent request received")
+    try:
+        response = provider.analyze_intent(request)
+        return response
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        return AnalyzeResponse(
+            success=False,
+            status="FAIL",
+            reply="Failed to classify intent.",
+            reasoning=str(e),
+            error=str(e),
+            provider={"vision": "none", "reasoning": "fast-router"}
+        )
 
 @router.post("/analyze", response_model=AnalyzeResponse)
 def analyze_screen(request: AnalyzeRequest, provider: FusionProvider = Depends(get_vlm_provider)):

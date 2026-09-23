@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:is(.dark *));
+
 @layer base {
   body {
     @apply bg-slate-50 text-slate-900 m-0 p-0 font-sans;
