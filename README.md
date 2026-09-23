@@ -44,8 +44,9 @@ chmod +x setup_mac.sh
 
 **🪟 For Windows Users (Uses global Python)**
 Double click or run the batch file from the root directory:
-```cmd
-setup_windows.bat
+```bash
+chmod +x setup_windows.bat
+./setup_windows.bat
 ```
 
 ---
@@ -59,8 +60,9 @@ chmod +x start_server_mac.sh
 ```
 
 **🪟 For Windows Users**
-```cmd
-start_server_windows.bat
+```bash
+chmod +x start_server_windows.bat
+./start_server_windows.bat
 ```
 *The server will run on `http://127.0.0.1:8000`.*
 
@@ -75,8 +77,9 @@ chmod +x start_extension_mac.sh
 ```
 
 **🪟 For Windows Users**
-```cmd
-start_extension_windows.bat
+```bash
+chmod +x start_extension_windows.bat
+./start_extension_windows.bat
 ```
 *This will build the extension into the `extension/dist/` directory.*
 
